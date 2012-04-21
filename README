@@ -1,0 +1,8 @@
+oAuthClient is a library intended for CodeIgniter, but with very small modifications useable for any PHP-project.
+
+Currently it supports:
+ - Facebook (oAuth v2)
+ - Twitter (oAuth v1)
+ - LinkedIn (oAuth v1)
+
+Details on the installation and usage can be found at http://jeroen.is/oauthclient/
