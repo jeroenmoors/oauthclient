@@ -1,14 +1,12 @@
 <?php if (!defined('BASEPATH')) exit('No direct script access allowed');
 /*
-*	Version 1.1 - 20/04/2012 - jeroen.moors@fluoline.net  
-*	Version 1.0 - 14/01/2012 - jeroen.moors@fluoline.net  
+*	Version 1.1 - 11/04/2013 - jeroen.moors@fluoline.net  
 *
 *	Oauthclient a oAuth client library to access 
 * 		- Twitter  (oAuth v1)
 * 		- Linkedin (oAuth v1)
 * 		- Facebook (oAuth v2)
-*		- Foursquare (oAuth v2)(Not fully tested)
-* 
+*
 *	More info: http://jeroen.is/oauthclient
 */
 
@@ -34,11 +32,13 @@ class Oauthclient {
     var $_oAuthAccessTokenUrl;
     var $_oAuthRedirectUrl;
     var $_callMyProfile;
+    var $_responseFormat;
     
 	function __construct()
 	{
         $this->ci =& get_instance();
         $this->oauthDataStore = "user_oauth";
+        $this->_responseFormat = "xml";
     }
     	
 	function setService($service) {
@@ -50,7 +50,8 @@ class Oauthclient {
 				$this->_oAuthAccessTokenUrl		= "https://api.twitter.com/oauth/access_token";
 				$this->_oAuthRedirectUrl		= "https://twitter.com/oauth/authenticate?oauth_token=";
 
-				$this->_callMyProfile			= "http://twitter.com/account/verify_credentials.xml";
+				$this->_callMyProfile			= "https://api.twitter.com/1.1/account/verify_credentials.json";
+				$this->_responseFormat			= "json";
 				break;
 				
 			case "linkedin":
@@ -61,7 +62,8 @@ class Oauthclient {
 				$this->_oAuthAccessTokenUrl		= "https://api.linkedin.com/uas/oauth/accessToken";
 				$this->_oAuthRedirectUrl		= "https://www.linkedin.com/uas/oauth/authorize?oauth_token=";
 
-				$this->_callMyProfile			= "https://api.linkedin.com/v1/people/~:(id,first-name,last-name,headline,picture-url,twitter-accounts,industry,positions)";
+				$this->_callMyProfile			= "https://api.linkedin.com/v1/people/~:(id,first-name,last-name,headline,picture-url,twitter-accounts,industry,positions,public-profile-url)";
+				$this->_responseFormat			= "xml";
 				break;
 
 			case "facebook":
@@ -70,6 +72,7 @@ class Oauthclient {
 				$this->_oAuthAccessTokenUrl 	= "https://graph.facebook.com/oauth/access_token?client_id=".$this->consumerKey."&redirect_uri=".urlencode($this->responseUrl)."&client_secret=".$this->consumerSecret."&code=";
 
 				$this->_callMyProfile			= "https://graph.facebook.com/me";
+				$this->_responseFormat			= "json";
 				break;
 
 			case "foursquare":
@@ -77,7 +80,8 @@ class Oauthclient {
 				$this->_oAuthRedirectUrl		= "https://foursquare.com/oauth2/authenticate?client_id=".$this->consumerKey."&response_type=code&redirect_uri=".urlencode($this->responseUrl);				
 				$this->_oAuthAccessTokenUrl 	= "https://foursquare.com/oauth2/access_token?client_id=".$this->consumerKey."&client_secret=".$this->consumerSecret."&grant_type=authorization_code&redirect_uri=".urlencode($this->responseUrl)."&code=code";
 
-				$this->_callMyProfile			= "TO BE DEFINED";
+				$this->_callMyProfile			= "https://graph.facebook.com/me";
+				$this->_responseFormat			= "json";
 				break;
 
 				
@@ -140,9 +144,8 @@ class Oauthclient {
 					print "Failed fetching request token, response was: " . $oauth->getLastResponse();
 				}
 			} catch(OAuthException $E) {
-				// TODO: Handle exceptions in a better way
-				// print_r($E);
-				// echo "Response (RequestToken): ". $E->lastResponse . "\n";
+				print_r($E);
+				echo "Response (RequestToken): ". $E->lastResponse . "\n";
 			}
 		} else {
 			// If oAuth v2, we must be sure the url's are correctly poppulated
@@ -172,7 +175,6 @@ class Oauthclient {
 				}
 				
 			} catch(OAuthException $E) {
-				// TODO: Handle exceptions in a better way
 				//echo "Response: ". $E->lastResponse . "\n";
 				return false;
 			}
@@ -191,7 +193,7 @@ class Oauthclient {
 				}
 
 				// Fetch Remote user id
-				$user = $this->_httpRequestJson($this->_callMyProfile, false);
+				$user = $this->_httpRequest($this->_callMyProfile, false);
 				if ($user) {
 					$this->oauthToken 	=  $user->id;
 					$this->userId 		= $this->_getUserId();
@@ -231,7 +233,7 @@ class Oauthclient {
 		return $this->ci->db->insert_id();
 	}
 
-    function apiCall($call, $postData = null) {
+    function apiCall($call, $postData = null, $reAuth = true) {
 		if ($this->_oAuthVersion == "1") {
 			try {
 				$oauth = new OAuth(
@@ -245,22 +247,25 @@ class Oauthclient {
 				} else { 
 					$data = $oauth->fetch($call);
 				}
-				$response_info = $oauth->getLastResponse();
 				
-				return new SimpleXMLElement($oauth->getLastResponse());
+				$response_info = $oauth->getLastResponse();
+				if($this->_responseFormat == "xml") {
+					return new SimpleXMLElement($oauth->getLastResponse());
+				} else {
+					return json_decode($oauth->getLastResponse());
+				}
 				
 			} catch(OAuthException $E) {
-				// TODO: Handle exceptions in a better way
-				// echo "Exception caught!\n";
-				// echo "Response: ". $E->lastResponse . "\n";
+				//echo "Exception caught!\n";
+				//echo "Response: ". $E->lastResponse . "\n";
 				return false;
 			}
 		} else {
-			return $this->_httpRequestJson($call, true);
+			return $this->_httpRequest($call, $reAuth);
 		}
     }
     
-    function _httpRequestJson($url, $reauthenticateOnFailure = true, $requireAccessToken = true) {
+    function _httpRequest($url, $reauthenticateOnFailure = true, $requireAccessToken = true) {
 		if ($requireAccessToken) {
 			$url = $url ."?access_token=".$this->oauthTokenSecret;
 		}
@@ -271,11 +276,15 @@ class Oauthclient {
 			}
 			return false;
 		} else {
-			return json_decode($data);
+			if($this->_responseFormat == "xml") {
+				return new SimpleXMLElement($data);
+			} else {
+				return json_decode($data);
+			}
 		}
 	}
     
 	function getProfile() {
-		return $this->apiCall($this->_callMyProfile);
+		return $this->apiCall($this->_callMyProfile, null, false);
 	}
 }
